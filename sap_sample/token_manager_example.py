@@ -3,141 +3,137 @@ Example using SAPTokenManager for authenticated requests, chat, and agent integr
 """
 
 import os
-import requests
+import requests  # Still needed for listing deployments
 from dotenv import load_dotenv
+from openai import OpenAI
 from token_manager import SAPTokenManager
 
 # Load environment variables
 load_dotenv()
 
 def chat_completion_example(token_manager: SAPTokenManager):
-    """Example of using SAP AI Core for chat completions"""
+    """Example of using SAP AI Core for chat completions with OpenAI package"""
     print("\n" + "="*50)
     print("SAP AI Core Chat Completion Example")
     print("="*50)
     
     base_url = os.getenv('AICORE_BASE_URL')
     deployment_id = os.getenv('AICORE_DEPLOYMENT_ID')
+    resource_group = os.getenv('AICORE_RESOURCE_GROUP')
     
     if not deployment_id:
         print("⚠ Skipping chat example - AICORE_DEPLOYMENT_ID not set")
         return
     
-    headers = token_manager.get_auth_headers()
-    
-    # Chat completion request
-    chat_payload = {
-        "messages": [
-            {
-                "role": "user",
-                "content": "Hello! Can you help me understand SAP AI Core?"
-            }
-        ],
-        "max_tokens": 100,
-        "temperature": 0.7
-    }
-    
     try:
-        print("\nSending chat request to SAP AI Core...")
-        response = requests.post(
-            f"{base_url}/v2/inference/deployments/{deployment_id}/chat/completions",
-            headers=headers,
-            json=chat_payload,
-            timeout=30
+        # Create OpenAI client configured for SAP AI Core
+        # For Azure OpenAI models, use the deployment URL with api-version parameter
+        api_version = "2024-02-01"
+        client = OpenAI(
+            base_url=f"{base_url}/v2/inference/deployments/{deployment_id}",
+            api_key=token_manager.get_token(),
+            default_headers={"AI-Resource-Group": resource_group}
         )
         
-        response.raise_for_status()
-        result = response.json()
+        print("\nSending chat request to SAP AI Core...")
         
-        print(f"✓ Response received (status: {response.status_code})")
-        if 'choices' in result and len(result['choices']) > 0:
-            message = result['choices'][0]['message']['content']
-            print(f"\nAssistant: {message}")
-        else:
-            print(f"\nResponse: {result}")
+        # Use the OpenAI client to make the chat completion request
+        response = client.chat.completions.create(
+            model="gpt-4o",  # Model name is required but ignored by SAP AI Core
+            messages=[
+                {
+                    "role": "user",
+                    "content": "Hello! Can you help me understand SAP AI Core?"
+                }
+            ],
+            max_tokens=100,
+            temperature=0.7,
+            extra_query={"api-version": api_version}
+        )
+        
+        print(f"✓ Response received")
+        message = response.choices[0].message.content
+        print(f"\nAssistant: {message}")
             
     except Exception as e:
         print(f"✗ Error: {e}")
 
 
 def agent_example(token_manager: SAPTokenManager):
-    """Example of using SAP AI Core as an agent with tools"""
+    """Example of using SAP AI Core as an agent with tools using OpenAI package"""
     print("\n" + "="*50)
     print("SAP AI Core Agent Example")
     print("="*50)
     
     base_url = os.getenv('AICORE_BASE_URL')
     deployment_id = os.getenv('AICORE_DEPLOYMENT_ID')
+    resource_group = os.getenv('AICORE_RESOURCE_GROUP')
     
     if not deployment_id:
         print("⚠ Skipping agent example - AICORE_DEPLOYMENT_ID not set")
         return
     
-    headers = token_manager.get_auth_headers()
-    
-    # Agent request with tool calling
-    agent_payload = {
-        "messages": [
-            {
-                "role": "system",
-                "content": "You are a helpful AI assistant with access to tools."
-            },
-            {
-                "role": "user",
-                "content": "What's the weather like today?"
-            }
-        ],
-        "tools": [
-            {
-                "type": "function",
-                "function": {
-                    "name": "get_weather",
-                    "description": "Get the current weather for a location",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "location": {
-                                "type": "string",
-                                "description": "City name"
-                            }
-                        },
-                        "required": ["location"]
-                    }
-                }
-            }
-        ],
-        "tool_choice": "auto",
-        "max_tokens": 150
-    }
-    
     try:
-        print("\nSending agent request with tools to SAP AI Core...")
-        response = requests.post(
-            f"{base_url}/v2/inference/deployments/{deployment_id}/chat/completions",
-            headers=headers,
-            json=agent_payload,
-            timeout=30
+        # Create OpenAI client configured for SAP AI Core
+        api_version = "2024-02-01"
+        client = OpenAI(
+            base_url=f"{base_url}/v2/inference/deployments/{deployment_id}",
+            api_key=token_manager.get_token(),
+            default_headers={"AI-Resource-Group": resource_group}
         )
         
-        response.raise_for_status()
-        result = response.json()
+        print("\nSending agent request with tools to SAP AI Core...")
         
-        print(f"✓ Response received (status: {response.status_code})")
+        # Use the OpenAI client with tool calling
+        response = client.chat.completions.create(
+            model="gpt-4o",  # Model name is required but ignored by SAP AI Core
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a helpful AI assistant with access to tools."
+                },
+                {
+                    "role": "user",
+                    "content": "What's the weather like today?"
+                }
+            ],
+            tools=[
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "get_weather",
+                        "description": "Get the current weather for a location",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "location": {
+                                    "type": "string",
+                                    "description": "City name"
+                                }
+                            },
+                            "required": ["location"]
+                        }
+                    }
+                }
+            ],
+            tool_choice="auto",
+            max_tokens=150,
+            extra_query={"api-version": api_version}
+        )
         
-        if 'choices' in result and len(result['choices']) > 0:
-            choice = result['choices'][0]
-            message = choice.get('message', {})
-            
-            # Check if agent wants to call a tool
-            if 'tool_calls' in message:
-                print("\n🔧 Agent requested tool calls:")
-                for tool_call in message['tool_calls']:
-                    print(f"  - {tool_call['function']['name']}")
-                    print(f"    Arguments: {tool_call['function']['arguments']}")
-            else:
-                print(f"\nAssistant: {message.get('content', 'No content')}")
+        print(f"✓ Response received")
+        
+        choice = response.choices[0]
+        message = choice.message
+        
+        # Check if agent wants to call a tool
+        if message.tool_calls:
+            print("\n🔧 Agent requested tool calls:")
+            for tool_call in message.tool_calls:
+                print(f"  - {tool_call.function.name}")
+                print(f"    Arguments: {tool_call.function.arguments}")
         else:
-            print(f"\nResponse: {result}")
+            print(f"\nAssistant: {message.content if message.content else 'No content'}")
             
     except Exception as e:
         print(f"✗ Error: {e}")
@@ -168,10 +164,23 @@ def list_deployments_example(token_manager: SAPTokenManager):
         if 'resources' in result:
             deployments = result['resources']
             print(f"\nFound {len(deployments)} deployment(s):")
-            for deployment in deployments[:5]:  # Show first 5
-                print(f"  - ID: {deployment.get('id')}")
+            for deployment in deployments:  # Show all deployments
+                print(f"\n  - ID: {deployment.get('id')}")
                 print(f"    Status: {deployment.get('status')}")
-                print(f"    Model: {deployment.get('scenarioId', 'N/A')}")
+                print(f"    Scenario ID: {deployment.get('scenarioId', 'N/A')}")
+                print(f"    Configuration ID: {deployment.get('configurationId', 'N/A')}")
+                print(f"    Configuration Name: {deployment.get('configurationName', 'N/A')}")
+                print(f"    Deployment URL: {deployment.get('deploymentUrl', 'N/A')}")
+                print(f"    Created At: {deployment.get('createdAt', 'N/A')}")
+                print(f"    Modified At: {deployment.get('modifiedAt', 'N/A')}")
+                print(f"    Submission Time: {deployment.get('submissionTime', 'N/A')}")
+                print(f"    Start Time: {deployment.get('startTime', 'N/A')}")
+                if deployment.get('details'):
+                    print(f"    Details: {deployment.get('details')}")
+                if deployment.get('targetStatus'):
+                    print(f"    Target Status: {deployment.get('targetStatus')}")
+                if deployment.get('latestRunningConfigurationId'):
+                    print(f"    Latest Running Config: {deployment.get('latestRunningConfigurationId')}")
         else:
             print(f"\nResponse: {result}")
             
